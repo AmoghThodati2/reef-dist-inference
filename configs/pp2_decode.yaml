@@ -1,0 +1,45 @@
+# ---- Model ----
+model: EleutherAI/gpt-neo-125m
+dtype: fp32                     # fp32 | fp16 (later: int8, int4); used for byte counts
+parallel_block: false           # reserved for a future parallel attn/MLP variant
+fused_qkv: false                # fuse W_Q, W_K, W_V into one matmul
+
+# ---- Hardware ----
+num_npus: 2
+hardware_profile:               # placeholders until Reef specs arrive
+  npu_peak_gflops: 100          # peak math per NPU, billions of FLOPs per second
+  npu_mem_bandwidth_GBps: 10    # NPU DRAM -> compute bandwidth, gigaBYTES per second
+  compute_model: constant       # constant (implemented) | table (stub, for kernel team data)
+  matmul_efficiency: 0.5        # used when compute_model: constant
+  kernel_table: null            # future: CSV with op, M, K, N, dtype, time_us
+  link_alpha_us: 5.0            # fixed cost per inter-NPU message, microseconds
+  link_beta_GBps: 10.0          # inter-NPU link bandwidth, gigaBYTES per second
+  overlap_comm: false           # false: step = max(compute, memory) + comm
+                                # true:  step = max(compute, memory, comm)
+
+# ---- Strategy ----
+strategy: pipeline_parallel
+strategy_args: {}
+
+# ---- Backends ----
+kernels: torch                  # torch | (future) cpp
+comm: local_gloo                # local_gloo | (future) reef_link
+
+# ---- Workload ----
+workload:
+  mode: decode
+  batch_size: 1
+  prompt_len: 512               # tokens in the prompt
+  prefill_chunk: null           # null = whole prompt at once, else chunk size
+  gen_tokens: 32                # decode mode: tokens to generate
+  draft_tokens: 4               # spec_verify mode: tokens verified per pass
+  seed: 0
+
+# ---- Laptop measurement (affects measured_laptop outputs only) ----
+measurement:
+  warmup_runs: 3                # discarded runs before timing
+  timed_runs: 20                # report median and p90 over these
+  threads_per_process: 1        # torch.set_num_threads per simulated NPU
+
+# ---- Output ----
+output_dir: results/
