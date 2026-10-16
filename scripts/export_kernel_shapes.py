@@ -1,11 +1,14 @@
-"""Collect every GEMM shape used across result files into a CSV for the kernel team.
+"""Collect every kernel shape used across result files into a CSV for the kernel team.
 
     python scripts/export_kernel_shapes.py results/ -o kernel_shapes.csv
 
-Columns: op, M, K, N, dtype (one row per distinct shape; [M x K] . [K x N]). Ops are
-``matmul`` (projections, MLP, lm_head) and the per-head attention GEMMs ``attn_scores``
-(q . K^T) and ``attn_pv`` (probs . V). The kernel team adds a ``time_us`` column; the file
-then feeds ``hardware_profile.compute_model: table`` / ``kernel_table``.
+Columns: op, batch, M, K, N, dtype (one row per distinct per-NPU shape, in the convention
+of perfmodel/flops.py: GEMMs are ``batch`` x [M x K] . [K x N]; elementwise ops have K = 1).
+Reads ``exact.kernel_shapes``, which covers every op the counters record: GEMMs (``matmul``,
+``attn_scores``, ``attn_pv``; attention with ``batch = batch_size x heads on this NPU``) and
+elementwise / memory ops. The kernel team measures a grid around these shapes and adds
+``time_us_warm`` (and friends, see README "Compute model"); the file then feeds
+``hardware_profile.compute_model: table`` / ``kernel_table``.
 """
 import argparse
 import csv
@@ -22,11 +25,11 @@ def main(argv=None):
     shapes = set()
     files = expand(args.files)
     for p in files:
-        for s in load(p)["exact"]["matmul_shapes"]:
-            shapes.add((s["op"], s["M"], s["K"], s["N"], s["dtype"]))
+        for k in load(p)["exact"]["kernel_shapes"]:
+            shapes.add((k["op"], k["batch"], k["M"], k["K"], k["N"], k["dtype"]))
     with open(args.output, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["op", "M", "K", "N", "dtype"])
+        w.writerow(["op", "batch", "M", "K", "N", "dtype"])
         w.writerows(sorted(shapes))
     print(f"wrote {len(shapes)} shapes from {len(files)} result file(s) to {args.output}")
 

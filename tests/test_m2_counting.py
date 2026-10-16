@@ -62,14 +62,14 @@ def test_weight_bytes_sum_to_model(runner, spec, n):
 
 def _shapes(r):
     out = defaultdict(set)
-    for s in r["exact"]["matmul_shapes"]:
+    for s in r["exact"]["kernel_shapes"]:
         for name in s["names"]:
             out[name].add((s["M"], s["K"], s["N"]))
     return out
 
 
 @pytest.mark.parametrize("n", [2, 4])
-def test_matmul_shapes_split_by_n(runner, spec, n):
+def test_kernel_shapes_split_by_n(runner, spec, n):
     one, many = _shapes(prefill_run(runner, 1)), _shapes(prefill_run(runner, n))
     for name in ("q_proj", "k_proj", "v_proj", "fc_in"):  # column-parallel: N / n
         (M, K, N), = one[name]
@@ -80,9 +80,13 @@ def test_matmul_shapes_split_by_n(runner, spec, n):
     (M, K, V), = one["lm_head"]  # vocab-parallel: N ~ V / n (uneven split of 50257)
     assert {s[2] for s in many["lm_head"]} == {-(-V // n), V - (n - 1) * -(-V // n)}
     (M, K, N), = one["attn_scores"]
-    assert many["attn_scores"] == {(M, K, N)}  # per-head shape unchanged, fewer heads per NPU
-    counts = {s["op"]: 0 for s in prefill_run(runner, n)["exact"]["matmul_shapes"]}
-    assert set(counts) == {"matmul", "attn_scores", "attn_pv"}
+    assert many["attn_scores"] == {(M, K, N)}  # per-head shape unchanged...
+    heads = lambda r: {s["batch"] for s in r["exact"]["kernel_shapes"] if s["op"] == "attn_scores"}  # noqa: E731
+    assert heads(prefill_run(runner, 1)) == {B * spec.num_heads}
+    assert heads(prefill_run(runner, n)) == {B * spec.num_heads // n}  # ...fewer heads per NPU
+    ops = {s["op"] for s in prefill_run(runner, n)["exact"]["kernel_shapes"]}
+    assert ops == {"matmul", "bias_add", "attn_scores", "softmax", "attn_pv", "layernorm", "gelu", "add",
+                   "embedding"}
 
 
 def test_same_config_twice_is_byte_identical():
@@ -130,7 +134,7 @@ def test_kernel_table_is_a_clear_stub(tmp_path):
     with pytest.raises(ConfigError, match="kernel_table"):
         validate(make_config({"hardware_profile": {"compute_model": "table"}}))
     cfg = {"hardware_profile": {"compute_model": "table", "kernel_table": str(tmp_path / "k.csv")}}
-    with pytest.raises(NotImplementedError, match="op, M, K, N, dtype, time_us"):
+    with pytest.raises(NotImplementedError, match="op, batch, M, K, N, dtype, time_us_warm"):
         run(cfg, write=False, verbose=False)
 
 
@@ -165,10 +169,43 @@ def test_tp_must_divide_heads(spec):
 def test_json_has_required_sections(runner):
     r = public(prefill_run(runner, 2))
     assert set(r) == {"config", "machine", "exact", "modeled", "measured_laptop"}
-    for k in ("correctness", "per_layer", "per_npu", "matmul_shapes", "communication_totals", "plan"):
+    for k in ("correctness", "per_layer", "per_npu", "kernel_shapes", "communication_totals", "plan"):
         assert k in r["exact"]
     for k in ("hardware_profile", "per_layer", "per_pass", "time_to_first_token_ms", "per_token_ms",
-              "tokens_per_second", "mfu"):
+              "tokens_per_second", "mfu", "pricing"):
         assert k in r["modeled"]
     json.dumps(r)  # serialisable
     assert r["exact"]["per_layer"][1]["layer"] == 0 and r["exact"]["per_layer"][1]["attention_type"] == "global"
+
+
+def test_pricing_rules_are_counted(runner):
+    r = prefill_run(runner, 2)
+    calls = sum(s["count"] for s in r["exact"]["kernel_shapes"])
+    assert r["modeled"]["pricing"] == {"exact": 0, "interpolated": 0, "scaled": 0, "fallback": 0, "constant": calls}
+
+
+def test_fused_attention_price_is_split_by_flops():
+    from reefdist.perfmodel.compute_model import ConstantEfficiency
+    from reefdist.perfmodel.flops import op_flops
+    from reefdist.perfmodel.modeled import price_kernels
+
+    class Fused(ConstantEfficiency):
+        def price(self, op, M, K, N, dtype, batch=1):
+            if op == "attention":
+                return (1.0, "interpolated") if N == 100 else None
+            return super().price(op, M, K, N, dtype, batch)
+
+    cm = Fused(make_config()["hardware_profile"])
+    kernels = [["attn_scores", 4, 64, 100, 6, "fp32", 2], ["softmax", 4, 1, 100, 6, "fp32", 2],
+               ["attn_pv", 4, 100, 64, 6, "fp32", 2], ["matmul", 4, 768, 768, 1, "fp32", 3],
+               ["attn_scores", 4, 64, 50, 6, "fp32", 1], ["softmax", 4, 1, 50, 6, "fp32", 1],
+               ["attn_pv", 4, 50, 64, 6, "fp32", 1]]
+    priced = {tuple(k[:6]): (k[6], t, rule) for k, t, rule in price_kernels(kernels, cm)}
+    trio = [tuple(k[:6]) for k in kernels[:3]]
+    f = [op_flops(k[0], k[1], k[2], k[3], k[4]) for k in trio]
+    for k, fl in zip(trio, f):
+        assert priced[k] == (2, pytest.approx(fl / sum(f)), "interpolated")
+    assert sum(priced[k][1] for k in trio) == pytest.approx(1.0)  # one fused call = 1 s, split three ways
+    for k in kernels[3:]:  # no fused row: priced one record at a time
+        cnt, t, rule = priced[tuple(k[:6])]
+        assert (cnt, rule) == (k[6], "constant") and t == cm.price(k[0], k[1], k[2], k[3], k[5], k[4])[0]

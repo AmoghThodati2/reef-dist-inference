@@ -28,8 +28,8 @@ def test_chunked_prefill_distributed_same_logits(runner):
     assert chunked["modeled"]["time_to_first_token_ms"] == sum(p["step_ms"] for p in passes)
     assert chunked["exact"]["correctness"]["tokens_match_hf"]
     # same math either way, apart from attention, whose context grows chunk by chunk
-    flops = lambda r, op: sum(s["count"] * 2 * s["M"] * s["K"] * s["N"]  # noqa: E731
-                              for s in r["exact"]["matmul_shapes"] if s["op"] == op)
+    flops = lambda r, op: sum(s["count"] * 2 * s["batch"] * s["M"] * s["K"] * s["N"]  # noqa: E731
+                              for s in r["exact"]["kernel_shapes"] if s["op"] == op)
     assert flops(whole, "matmul") == flops(chunked, "matmul")
 
 
@@ -59,6 +59,6 @@ def test_spec_verify_workload(runner, hf, tok):
     draft = r["_artifacts"]["reference"]["draft_tokens"]
     assert torch.equal(ours["tokens"]["verify"][:, :-1], draft[:, 1:])
     # attention sees the cached prompt plus the draft: K context = P + k for global layers
-    scores = [s for s in r["exact"]["matmul_shapes"] if s["op"] == "attn_scores" and s["M"] == k]
+    scores = [s for s in r["exact"]["kernel_shapes"] if s["op"] == "attn_scores" and s["M"] == k]
     assert {s["N"] for s in scores} == {P + k, 256 + k - 1}
     assert r["modeled"]["tokens_per_second"] == k / (r["modeled"]["per_token_ms"] * 1e-3)

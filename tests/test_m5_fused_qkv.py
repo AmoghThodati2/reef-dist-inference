@@ -23,7 +23,7 @@ def test_fused_matches_unfused(runner, spec, n):
     passes = fused["exact"]["phase"]["passes"]
     for x, y in zip(pa, pb):  # one matmul instead of three, per layer per pass
         assert x["kernel_calls"] - y["kernel_calls"] == 2 * spec.num_layers * passes
-    names = {nm for s in fused["exact"]["matmul_shapes"] for nm in s["names"]}
+    names = {nm for s in fused["exact"]["kernel_shapes"] for nm in s["names"]}
     assert "qkv_proj" in names and "q_proj" not in names
 
 

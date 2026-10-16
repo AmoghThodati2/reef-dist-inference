@@ -143,7 +143,7 @@ stage's `wte` replica) are in `weight_bytes`; `unique_weight_bytes` counts each 
 From the exact counts and `hardware_profile` (`perfmodel/modeled.py`), per NPU:
 
 ```
-compute = Σ compute_model.compute_time(op, M, K, N, dtype, batch)
+compute = Σ compute_model.price(op, M, K, N, dtype, batch) seconds × count
 memory  = bytes_read / (npu_mem_bandwidth_GBps × 1e9)
 comm    = messages × link_alpha_us × 1e-6 + bytes_sent / (link_beta_GBps × 1e9)
 step    = max(compute, memory) + comm        (overlap_comm: false)
@@ -160,9 +160,204 @@ slowest NPU; PP: the sum of stage times, with stage-to-stage sends in the sender
   (null for prefill); `tokens_per_second` = prompt tokens/s (prefill), batch/step (decode),
   batch·draft_tokens/step (spec_verify, all drafts accepted).
 * `mfu` = useful FLOPs of the phase / (phase time × num_npus × peak).
+* `modeled.pricing`: how many kernel records (all passes, all NPUs) each rule priced:
+  `exact`, `interpolated`, `scaled`, `fallback` (`table`, see [Compute model](#compute-model)) or
+  `constant`. With `compute_model: constant` every record is `constant`.
 * `modeled.passes` lists every pass with its per-NPU breakdown.
 
-`ConstantEfficiency`: `time = FLOPs / (npu_peak_gflops × 1e9 × matmul_efficiency)` for every op.
+## Compute model
+
+`compute` in the modeled step time comes from a pluggable `ComputeModel`
+(`perfmodel/compute_model.py`), chosen by `hardware_profile.compute_model`. It answers one
+question: *how long does one kernel call of this shape take on one Reef NPU, ignoring memory
+and communication?* Memory and link time are modeled separately (see above), so the compute
+model must not include them.
+
+```python
+class ComputeModel:
+    def price(self, op, M, K, N, dtype, batch=1) -> tuple[float, str] | None: ...  # seconds, rule
+```
+
+`price` returns the time for one call and the rule that priced it (`constant` for
+`ConstantEfficiency`; see the lookup rules below for `table`). `op="attention"` asks for a whole
+fused attention call (`K = head_dim`, `N = ctx`, the same convention as the table's `attention`
+rows); it is the only op that may return None, meaning "price `attn_scores`, `softmax` and
+`attn_pv` separately". `ConstantEfficiency` always returns None for it.
+
+It receives the **per-NPU shapes that were actually executed**, after sharding. It never splits
+anything itself: on 4-NPU TP, W_in is priced as `[M×768]·[768×768]`, not `[M×768]·[768×3072] / 4`.
+That is what lets measured data capture the effect of smaller per-NPU kernels.
+
+| `compute_model` | status | what it assumes |
+|---|---|---|
+| `constant` | implemented | every op runs at a fixed fraction of peak, regardless of shape |
+| `table` | stub (`NotImplementedError`) | per-shape times measured by the kernel team |
+
+### `constant`: fixed efficiency
+
+```
+time = FLOPs / (npu_peak_gflops × 1e9 × matmul_efficiency)
+```
+
+```yaml
+hardware_profile:
+  compute_model: constant
+  matmul_efficiency: 0.5    # 0.5 = every op runs at half of peak
+```
+
+Simple and deterministic, but a placeholder. It is wrong in predictable ways:
+
+* **Ignores shape.** A decode matmul with M = 1 can't fill a matrix unit built for many rows, so
+  real efficiency is far below 0.5; a 512-token prefill matmul can approach peak. Both get 0.5.
+* **Ignores per-call overhead.** Kernel launch/setup/sync is a fixed cost per call; at batch 1 it
+  can dominate small ops (layernorm, bias add, residual add).
+* **Applies to elementwise ops too**, which on real hardware are rarely limited by FLOPs.
+
+How much this matters depends on the regime: compute only sets the step time when an NPU is
+compute-bound. Batch-1 decode is memory-bound, so `constant` rarely changes its answer (with the
+placeholder profile, the TP4-vs-1-NPU decode crossover is the same for every efficiency from 0.1
+to 0.8); prefill and spec_verify are where it matters. Use `scripts/sweep_hardware.py` across a
+range of `matmul_efficiency` to check whether a conclusion depends on it:
+
+```bash
+python scripts/sweep_hardware.py results/tp1_prefill.json results/tp4_prefill.json \
+    --crossover-vs matmul_efficiency
+```
+
+### `table`: measured kernel times (planned)
+
+```yaml
+hardware_profile:
+  compute_model: table
+  kernel_table: profiles/reef_fp16.csv
+```
+
+The kernel team times their kernels on the closest thing to real Reef (RTL/cycle simulator,
+FPGA, then silicon) and delivers two files.
+
+**`<name>.csv`**: one row per measured kernel shape:
+
+| column | meaning |
+|---|---|
+| `op` | `matmul`, `attn_scores`, `attn_pv`, `softmax`, `layernorm`, `gelu`, `add`, `bias_add`, `embedding`, and optionally `attention` (one fused scores + softmax + probs·V call, keyed like `attn_scores`: `K = head_dim`, `N = ctx`) |
+| `batch` | 1 for matmuls and elementwise ops; `batch_size × heads on this NPU` for attention ops |
+| `M` | rows: `batch_size × tokens in the pass` (for attention, query tokens per head) |
+| `K` | inner dimension of a GEMM; **1** for elementwise ops |
+| `N` | output dimension of a GEMM; feature width (or `ctx` for softmax) for elementwise ops |
+| `dtype` | `fp16`, `int8`, … |
+| `time_us_warm` | median time with all operands already in on-chip SRAM: **pure compute, used by the model** |
+| `time_us_cold` | median time with weights starting in DRAM: **used to validate the model** |
+| `time_us_p90` | 90th percentile of the warm time |
+| `cycles` | cycle count, if the platform reports one |
+| `runs` | measurements behind the median |
+
+**`<name>_meta.yaml`**: what the numbers were measured on, so tables are never mixed across
+hardware or kernel versions:
+
+```yaml
+platform: rtl_sim          # rtl_sim | cycle_sim | fpga | silicon
+platform_version: "..."
+clock_mhz: 500
+kernel_version: "<git sha>"
+date: 2026-10-20
+```
+
+**Why warm, not cold.** The modeled step is `max(compute, memory) + comm`, with memory already
+computed from bytes ÷ DRAM bandwidth. A cold time already includes streaming weights from
+DRAM, so using it as `compute` would count memory twice. Cold is still worth collecting: for
+each shape, compare `max(time_us_warm, bytes_read / bandwidth)` with `time_us_cold`, where
+`bytes_read` is the same per-call figure the counting wrapper records. If they agree, the
+roofline assumption holds; if cold is consistently higher, compute and memory don't overlap as
+well as the model assumes.
+
+**dtype must match the run.** Lookups key on `dtype`, and every record carries the config's
+`dtype` (default `fp32`). Price against an fp16 table with `dtype: fp16` in the config (it only
+changes byte counts; the laptop still computes in FP32). `int8` is reserved and rejected by
+config validation today, so int8 rows can't be used until that dtype is enabled.
+
+#### How each op maps to (batch, M, K, N)
+
+The table must use the same shape convention as the counting records (`perfmodel/flops.py`,
+`kernels/counting.py`): GEMMs are `batch` independent `[M×K]·[K×N]` products; elementwise ops
+are `batch × M × N` elements with `K = 1`. For GPT Neo 125M (d_model 768, d_ff 3072, 12 heads,
+head_dim 64), batch_size 1, with `M` = tokens in the pass and `ctx` = context the kernel reads
+(all cached tokens on global layers, `min(ctx, M + 255)` on local layers, so 256 in decode but
+up to `M + 255` in a prefill chunk):
+
+| op | batch | M | K | N | example on 4-NPU TP, decode |
+|---|---|---|---|---|---|
+| `matmul` (Q, K or V) | 1 | tokens | 768 | 768 / tp | `1, 1, 768, 192` |
+| `matmul` (fused QKV, `fused_qkv: true`) | 1 | tokens | 768 | 3·768 / tp | `1, 1, 768, 576` |
+| `matmul` (W_O) | 1 | tokens | 768 / tp | 768 | `1, 1, 192, 768` |
+| `matmul` (W_in) | 1 | tokens | 768 | 3072 / tp | `1, 1, 768, 768` |
+| `matmul` (W_out) | 1 | tokens | 3072 / tp | 768 | `1, 1, 768, 768` |
+| `matmul` (LM head) | 1 | tokens | 768 | vocab shard | `1, 1, 768, 12565` (`exact.plan.vocab_shard_sizes`) |
+| `attn_scores` (q·Kᵀ) | heads / tp | query tokens | 64 | ctx | `3, 1, 64, ctx` |
+| `attn_pv` (probs·V) | heads / tp | query tokens | ctx | 64 | `3, 1, ctx, 64` |
+| `softmax` | heads / tp | query tokens | 1 | ctx | `3, 1, 1, ctx` |
+| `attention` (fused, optional) | heads / tp | query tokens | 64 | ctx | `3, 1, 64, ctx` |
+| `layernorm`, `add` | 1 | tokens | 1 | 768 | `1, 1, 1, 768` |
+| `gelu` | 1 | tokens | 1 | 3072 / tp | `1, 1, 1, 768` |
+| `bias_add` | 1 | tokens | 1 | output width | `1, 1, 1, 768` |
+| `embedding` | 1 | tokens | 1 | 768 | 0 FLOPs; memory only |
+
+With `batch_size > 1`, multiply `M` by it for matmuls and elementwise ops, and `batch` by it for
+attention ops.
+
+#### Which shapes to measure
+
+`scripts/export_kernel_shapes.py results/ -o kernel_shapes.csv` lists every per-NPU
+shape the runs used, GEMMs and elementwise ops alike, with columns `op, batch, M, K, N, dtype` in
+the convention above. Measure a **grid around it** so new prompt lengths, chunk sizes and draft counts can be interpolated without re-profiling:
+
+* **M**: 1, 2, 4, 8, 16 (decode, spec_verify) and 32, 64, 128, 256, 512, 1024, 2048 (prefill, chunks)
+* **(K, N)** for tp = 1, 2 and 4, i.e. the full shapes and their halves and quarters:
+
+  | weight | tp = 1 | tp = 2 | tp = 4 |
+  |---|---|---|---|
+  | Q, K or V | 768 × 768 | 768 × 384 | 768 × 192 |
+  | fused QKV | 768 × 2304 | 768 × 1152 | 768 × 576 |
+  | W_O | 768 × 768 | 384 × 768 | 192 × 768 |
+  | W_in | 768 × 3072 | 768 × 1536 | 768 × 768 |
+  | W_out | 3072 × 768 | 1536 × 768 | 768 × 768 |
+  | LM head | 768 × 50257 | 768 × 25129 and 768 × 25128 | 768 × 12565 and 768 × 12564 |
+
+  Vocab (50257) doesn't divide evenly, so the LM head shards differ by one column
+  (`exact.plan.vocab_shard_sizes`). If only one of each pair is measured, lookup rule 3
+  prices the other.
+
+* **Attention**: batch = 12, 6, 3; head_dim 64; ctx = 64, 128, 256, 512, 1024, 2048 (the three
+  separate ops, plus fused `attention` rows at the same shapes if the kernel team has one)
+* **Elementwise**: widths 768, 1536, 3072 (and ctx values for softmax)
+* **dtype**: whatever Reef supports (likely fp16 and int8)
+
+The sharded shapes and small M values matter most: they are where efficiency is lowest and
+hardest to predict, and they decide whether splitting across NPUs pays off.
+
+#### Lookup rules (to implement in `KernelTable`)
+
+1. **Exact match** on `(op, batch, M, K, N, dtype)`: use `time_us_warm`.
+2. **Interpolate on the dimensions that vary per run.**
+   - Matmuls and elementwise ops: fixed key `(op, batch, K, N, dtype)`, interpolate on M
+     (log scale).
+   - Attention ops (`attn_scores`, `attn_pv`, `softmax`, and fused `attention`): fixed key
+     `(op, batch, head_dim, dtype)`, interpolate on M and ctx together (bilinear, log scales).
+     ctx is N for `attn_scores`, `softmax` and `attention`, K for `attn_pv`. ctx grows by one
+     every decode step (the runs use 513, 514, 515, …), so it almost never matches exactly.
+3. **Near match on a fixed dimension (matmuls only):** if no rows exist for the exact `K` or `N`
+   but a measured value is within ±1%, use the nearest one and scale the time linearly
+   (`time × N_actual / N_measured`, same for K). Mark the op `scaled`. This covers uneven
+   vocab shards (e.g. 12,565 vs 12,564 on 4-NPU TP).
+4. **No usable rows:** fall back to `constant`, print a warning, and mark the op `fallback`.
+
+**Fused attention.** Each attention call is counted as three records (`attn_scores`,
+`softmax`, `attn_pv`). If a fused `attention` row matches the call, exactly or by
+interpolation (rules 1–2), the call is priced from it and that time is split across the three
+records in proportion to their FLOPs; otherwise the three records are priced separately.
+
+Every modeled op records which rule priced it (`exact`, `interpolated`, `scaled`, `fallback`;
+a fused split gives all three records the fused row's rule), and `modeled.pricing` counts
+them per run, so it is obvious which estimates rest on real data.
 
 ## Workloads
 
@@ -185,8 +380,12 @@ the offsets for batch rows). Real text keeps greedy comparisons from hinging on 
 * `exact.per_layer`, `exact.per_npu` (`weight_bytes`, `unique_weight_bytes`, `kv_cache_bytes` at the
   end of the run, `peak_activation_bytes` = largest single-op activation footprint, `flops`,
   `unique_flops`, `redundant_flops`, bytes, messages, `kernel_calls`).
-* `exact.matmul_shapes`: every distinct GEMM shape with its count (single-head GEMMs for attention)
-  and the layer ops that used it; the list to hand to the kernel team.
+* `exact.kernel_shapes`: **the list to hand to the kernel team.** Every distinct per-NPU kernel
+  shape (matmuls, attention ops, softmax, layernorm, gelu, add, bias_add, embedding) as
+  `op, batch, M, K, N, dtype` in the [Compute model](#compute-model) convention, with `count`
+  (calls, all passes and NPUs) and `names` (the layer ops that used it). Attention is one record
+  with `batch = batch_size × heads on this NPU`, not single-head GEMMs.
+  `scripts/export_kernel_shapes.py` writes it to CSV.
 * `exact.communication_totals.by_collective`: `{calls, num_messages, bytes_sent}` per collective type.
 * `exact.plan`, `exact.weights` (model vs summed weight bytes), `exact.pass_profiles` (the
   per-pass, per-NPU shape counts that `sweep_hardware.py` re-prices).
@@ -219,7 +418,7 @@ methods, `@KERNELS.register("my_backend")`, set `kernels: my_backend`. Validate 
 `(rank, world_size, groups, port, timeout_s)`, `@COMMS.register("my_link")`. No artificial delays.
 
 **Compute model**, `reefdist/perfmodel/my_model.py`: subclass `ComputeModel`, implement
-`compute_time(op, M, K, N, dtype, batch=1) -> seconds`, `@COMPUTE_MODELS.register("my_model")`,
+`price(op, M, K, N, dtype, batch=1) -> (seconds, rule)` (None allowed only for `op="attention"`), `@COMPUTE_MODELS.register("my_model")`,
 set `hardware_profile.compute_model: my_model`.
 
 ## When real Reef numbers arrive
@@ -228,10 +427,10 @@ set `hardware_profile.compute_model: my_model`.
   Old runs can be re-priced without re-running: `scripts/sweep_hardware.py` reads
   `exact.pass_profiles`.
 * **Kernel-team profiling**: `scripts/export_kernel_shapes.py results/ -o kernel_shapes.csv`
-  gives every `op, M, K, N, dtype` the runs used. The kernel team adds `time_us`. Then implement
-  `KernelTable` in `perfmodel/compute_model.py` (load the CSV, interpolate between measured
-  shapes; the docstring has the plan) and set `compute_model: table`, `kernel_table: <csv>`.
-  Until then, selecting `table` raises `NotImplementedError`.
+  gives every kernel shape the runs used; the kernel team measures a grid around it (see
+  [Compute model](#compute-model) for the CSV format, shape convention and lookup rules). Then
+  implement `KernelTable` in `perfmodel/compute_model.py` and set `compute_model: table`,
+  `kernel_table: <csv>`. Until then, selecting `table` raises `NotImplementedError`.
 * **Real kernels / link**: implement `CppBackend` / `ReefLinkBackend` (stubs document the plan).
 
 ## Tests (per milestone)

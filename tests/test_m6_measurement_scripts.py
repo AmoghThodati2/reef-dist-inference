@@ -86,10 +86,28 @@ def test_export_kernel_shapes(results_dir, tmp_path):
     out_csv = tmp_path / "shapes.csv"
     script("export_kernel_shapes.py", results_dir, "-o", out_csv)
     rows = list(csv.reader(open(out_csv)))
-    assert rows[0] == ["op", "M", "K", "N", "dtype"]
+    assert rows[0] == ["op", "batch", "M", "K", "N", "dtype"]
     body = [tuple(r) for r in rows[1:]]
     assert len(body) == len(set(body)) > 0
-    assert ("matmul", "1", "768", "192", "fp32") in body  # TP4 decode q/k/v per NPU
+    assert ("matmul", "1", "1", "768", "192", "fp32") in body  # TP4 decode q/k/v per NPU
+    assert ("layernorm", "1", "1", "1", "768", "fp32") in body  # elementwise: K = 1
+    batches = {(r[1], r[3]) for r in body if r[0] == "attn_scores" and r[2] == "1"}
+    assert ("3", "64") in batches and ("12", "64") in batches  # heads per NPU: tp4 vs tp1/pp4
+
+
+def test_exported_csv_has_every_executed_op(results_dir, tmp_path):
+    out_csv = tmp_path / "shapes.csv"
+    script("export_kernel_shapes.py", results_dir, "-o", out_csv)
+    exported = {(r["op"], int(r["batch"]), int(r["M"]), int(r["K"]), int(r["N"]), r["dtype"])
+                for r in csv.DictReader(open(out_csv))}
+    executed = set()
+    for p in results_dir.glob("*.json"):
+        for pp in json.load(open(p))["exact"]["pass_profiles"]:
+            for npu in pp["npus"]:
+                executed |= {(op, b, M, K, N, dt) for op, M, K, N, b, dt, _ in npu["kernels"]}
+    assert exported == executed
+    assert {e[0] for e in exported} == {"matmul", "bias_add", "attn_scores", "softmax", "attn_pv",
+                                        "layernorm", "gelu", "add", "embedding"}
 
 
 def _comm_worker(rank, port, q):

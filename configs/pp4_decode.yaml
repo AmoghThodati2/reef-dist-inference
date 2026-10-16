@@ -11,7 +11,7 @@ hardware_profile:               # placeholders until Reef specs arrive
   npu_mem_bandwidth_GBps: 10    # NPU DRAM -> compute bandwidth, gigaBYTES per second
   compute_model: constant       # constant (implemented) | table (stub, for kernel team data)
   matmul_efficiency: 0.5        # used when compute_model: constant
-  kernel_table: null            # future: CSV with op, M, K, N, dtype, time_us
+  kernel_table: null            # future: measured kernel CSV (README, Compute model)
   link_alpha_us: 5.0            # fixed cost per inter-NPU message, microseconds
   link_beta_GBps: 10.0          # inter-NPU link bandwidth, gigaBYTES per second
   overlap_comm: false           # false: step = max(compute, memory) + comm

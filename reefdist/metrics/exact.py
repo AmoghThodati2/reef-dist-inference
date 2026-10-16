@@ -2,7 +2,6 @@
 that the performance model consumes. Counts only; no timing anywhere in this module."""
 from collections import Counter, defaultdict
 
-from ..perfmodel.flops import MATMUL_OPS
 from ..perfmodel.modeled import PHASE_OF_MODE
 
 COLLECTIVES = ("all_reduce", "all_gather", "reduce_scatter", "all_to_all", "send", "recv", "barrier")
@@ -75,11 +74,9 @@ def build_exact(npu_results, plan, spec, cfg, weight_info):
             per_pass[(r.pass_id, npu)].add_kernel(r, redundant)
             per_phase[phase_of[r.pass_id]].add_kernel(r, redundant)
             peak_act[npu] = max(peak_act[npu], r.act_bytes)
-            if r.op in MATMUL_OPS:
-                key = (r.op, r.M, r.K, r.N, r.dtype)
-                entry = shapes.setdefault(key, [0, set()])
-                entry[0] += r.batch
-                entry[1].add(r.name)
+            entry = shapes.setdefault((r.op, r.batch, r.M, r.K, r.N, r.dtype), [0, set()])
+            entry[0] += 1
+            entry[1].add(r.name)
             if r.pass_id in rep:
                 per_layer_npu[(r.layer, npu)].add_kernel(r, redundant)
                 per_npu[npu].add_kernel(r, redundant)
@@ -123,7 +120,7 @@ def build_exact(npu_results, plan, spec, cfg, weight_info):
             "redundant_flops": s.flops - s.unique_flops,
         })
 
-    matmul_shapes = [{"op": k[0], "M": k[1], "K": k[2], "N": k[3], "dtype": k[4], "count": v[0],
+    kernel_shapes = [{"op": k[0], "batch": k[1], "M": k[2], "K": k[3], "N": k[4], "dtype": k[5], "count": v[0],
                       "names": sorted(v[1])} for k, v in sorted(shapes.items())]
 
     by_collective = {op: dict(calls=0, num_messages=0, bytes_sent=0) for op in COLLECTIVES}
@@ -152,7 +149,7 @@ def build_exact(npu_results, plan, spec, cfg, weight_info):
                           "decode sums all decode steps; see by_phase for the rest"},
         "per_layer": per_layer,
         "per_npu": per_npu_out,
-        "matmul_shapes": matmul_shapes,
+        "kernel_shapes": kernel_shapes,
         "communication_totals": comm_totals,
         "by_phase": by_phase,
         "weights": {"model_weight_bytes": weight_info["model"],

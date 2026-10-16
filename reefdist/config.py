@@ -121,7 +121,7 @@ def validate(cfg: dict, spec=None) -> dict:
                           f"(got {hw['compute_model']!r})")
     if hw["compute_model"] == "table" and not hw["kernel_table"]:
         raise ConfigError("hardware_profile.compute_model: table requires hardware_profile.kernel_table "
-                          "(path to a CSV with columns op, M, K, N, dtype, time_us)")
+                          "(path to a CSV with columns op, batch, M, K, N, dtype, time_us_warm)")
 
     for key, reg in (("strategy", STRATEGIES), ("kernels", KERNELS), ("comm", COMMS)):
         if cfg[key] not in reg.names():
