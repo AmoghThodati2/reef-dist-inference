@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 360" width="900" height="360" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="360" rx="14" fill="#ffffff"/>
+
+  <!-- config -->
+  <rect x="20" y="105" width="150" height="150" rx="10" fill="#fff8e6" stroke="#d4a72c" stroke-width="1.5"/>
+  <text x="95" y="132" text-anchor="middle" font-size="15" font-weight="700" fill="#24292f">config.yaml</text>
+  <text x="95" y="160" text-anchor="middle" font-size="12" fill="#57606a">model · dtype</text>
+  <text x="95" y="180" text-anchor="middle" font-size="12" fill="#57606a">strategy · num_npus</text>
+  <text x="95" y="200" text-anchor="middle" font-size="12" fill="#57606a">hardware_profile</text>
+  <text x="95" y="220" text-anchor="middle" font-size="12" fill="#57606a">workload</text>
+  <text x="95" y="240" text-anchor="middle" font-size="12" fill="#57606a">kernels · comm</text>
+
+  <line x1="172" y1="180" x2="212" y2="180" stroke="#57606a" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- launcher -->
+  <rect x="215" y="130" width="130" height="100" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+  <text x="280" y="160" text-anchor="middle" font-size="15" font-weight="700" fill="#24292f">launcher</text>
+  <text x="280" y="182" text-anchor="middle" font-size="12" fill="#57606a">host CPU</text>
+  <text x="280" y="200" text-anchor="middle" font-size="12" fill="#57606a">validate · shard</text>
+  <text x="280" y="216" text-anchor="middle" font-size="12" fill="#57606a">spawn N workers</text>
+
+  <line x1="347" y1="180" x2="377" y2="180" stroke="#57606a" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- NPUs -->
+  <rect x="380" y="18" width="310" height="324" rx="12" fill="#f3f0ff" stroke="#8250df" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="535" y="40" text-anchor="middle" font-size="13" font-weight="700" fill="#6639ba">N simulated NPUs · 1 CPU process each</text>
+  <g font-size="11.5" fill="#24292f">
+    <g transform="translate(392,52)">
+      <rect width="140" height="132" rx="8" fill="#ffffff" stroke="#8250df"/>
+      <text x="70" y="22" text-anchor="middle" font-size="13" font-weight="700">NPU 0</text>
+      <rect x="8" y="34" width="124" height="26" rx="5" fill="#ede7ff"/><text x="70" y="51" text-anchor="middle">strategy.forward</text>
+      <rect x="8" y="66" width="124" height="26" rx="5" fill="#dafbe1"/><text x="70" y="83" text-anchor="middle">kernels.*  (counted)</text>
+      <rect x="8" y="98" width="124" height="26" rx="5" fill="#ddf4ff"/><text x="70" y="115" text-anchor="middle">comm.*  (counted)</text>
+    </g>
+    <g transform="translate(538,52)">
+      <rect width="140" height="132" rx="8" fill="#ffffff" stroke="#8250df"/>
+      <text x="70" y="22" text-anchor="middle" font-size="13" font-weight="700">NPU 1</text>
+      <rect x="8" y="34" width="124" height="26" rx="5" fill="#ede7ff"/><text x="70" y="51" text-anchor="middle">strategy.forward</text>
+      <rect x="8" y="66" width="124" height="26" rx="5" fill="#dafbe1"/><text x="70" y="83" text-anchor="middle">kernels.*  (counted)</text>
+      <rect x="8" y="98" width="124" height="26" rx="5" fill="#ddf4ff"/><text x="70" y="115" text-anchor="middle">comm.*  (counted)</text>
+    </g>
+    <g transform="translate(392,200)">
+      <rect width="140" height="132" rx="8" fill="#ffffff" stroke="#8250df"/>
+      <text x="70" y="22" text-anchor="middle" font-size="13" font-weight="700">NPU 2</text>
+      <rect x="8" y="34" width="124" height="26" rx="5" fill="#ede7ff"/><text x="70" y="51" text-anchor="middle">strategy.forward</text>
+      <rect x="8" y="66" width="124" height="26" rx="5" fill="#dafbe1"/><text x="70" y="83" text-anchor="middle">kernels.*  (counted)</text>
+      <rect x="8" y="98" width="124" height="26" rx="5" fill="#ddf4ff"/><text x="70" y="115" text-anchor="middle">comm.*  (counted)</text>
+    </g>
+    <g transform="translate(538,200)">
+      <rect width="140" height="132" rx="8" fill="#ffffff" stroke="#8250df"/>
+      <text x="70" y="22" text-anchor="middle" font-size="13" font-weight="700">NPU 3</text>
+      <rect x="8" y="34" width="124" height="26" rx="5" fill="#ede7ff"/><text x="70" y="51" text-anchor="middle">strategy.forward</text>
+      <rect x="8" y="66" width="124" height="26" rx="5" fill="#dafbe1"/><text x="70" y="83" text-anchor="middle">kernels.*  (counted)</text>
+      <rect x="8" y="98" width="124" height="26" rx="5" fill="#ddf4ff"/><text x="70" y="115" text-anchor="middle">comm.*  (counted)</text>
+    </g>
+  </g>
+  <text x="535" y="194" text-anchor="middle" font-size="11" fill="#0969da">⇅ gloo all-reduce · all-gather · send</text>
+
+  <line x1="692" y1="180" x2="712" y2="180" stroke="#57606a" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- results -->
+  <rect x="715" y="30" width="170" height="300" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+  <text x="800" y="54" text-anchor="middle" font-size="13" font-weight="700" fill="#24292f">results/&lt;name&gt;.json</text>
+  <rect x="727" y="66" width="146" height="70" rx="7" fill="#dafbe1" stroke="#1a7f37"/>
+  <text x="800" y="88" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f37">exact</text>
+  <text x="800" y="106" text-anchor="middle" font-size="11" fill="#24292f">FLOPs · bytes · msgs</text>
+  <text x="800" y="123" text-anchor="middle" font-size="11" fill="#24292f">correctness vs HF</text>
+  <text x="800" y="153" text-anchor="middle" font-size="11" fill="#57606a">× hardware_profile</text>
+  <line x1="800" y1="137" x2="800" y2="141" stroke="#57606a"/>
+  <line x1="800" y1="158" x2="800" y2="166" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="727" y="170" width="146" height="70" rx="7" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="800" y="192" text-anchor="middle" font-size="13" font-weight="700" fill="#0969da">modeled</text>
+  <text x="800" y="210" text-anchor="middle" font-size="11" fill="#24292f">Reef step · TTFT</text>
+  <text x="800" y="227" text-anchor="middle" font-size="11" fill="#24292f">tokens/s · MFU</text>
+  <rect x="727" y="250" width="146" height="66" rx="7" fill="#eaeef2" stroke="#8c959f"/>
+  <text x="800" y="272" text-anchor="middle" font-size="13" font-weight="700" fill="#57606a">measured_laptop</text>
+  <text x="800" y="290" text-anchor="middle" font-size="11" fill="#24292f">wall clock</text>
+  <text x="800" y="306" text-anchor="middle" font-size="11" font-weight="700" fill="#cf222e">not a Reef number</text>
+</svg>

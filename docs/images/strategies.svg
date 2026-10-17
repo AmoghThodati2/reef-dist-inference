@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" width="900" height="300" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="300" rx="14" fill="#ffffff"/>
+
+  <!-- Tensor parallel -->
+  <g transform="translate(10,10)">
+    <rect width="280" height="280" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="140" y="26" text-anchor="middle" font-size="14" font-weight="700" fill="#24292f">tensor_parallel  (tp = 4)</text>
+    <g font-size="11" fill="#24292f" text-anchor="middle">
+      <rect x="20" y="44" width="55" height="122" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="47.5" y="64" font-weight="700">NPU 0</text><text x="47.5" y="88">L0–L11</text><text x="47.5" y="108">3 heads</text><text x="47.5" y="128">¼ MLP</text><text x="47.5" y="148">¼ vocab</text>
+      <rect x="81" y="44" width="55" height="122" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="108.5" y="64" font-weight="700">NPU 1</text><text x="108.5" y="88">L0–L11</text><text x="108.5" y="108">3 heads</text><text x="108.5" y="128">¼ MLP</text><text x="108.5" y="148">¼ vocab</text>
+      <rect x="142" y="44" width="55" height="122" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="169.5" y="64" font-weight="700">NPU 2</text><text x="169.5" y="88">L0–L11</text><text x="169.5" y="108">3 heads</text><text x="169.5" y="128">¼ MLP</text><text x="169.5" y="148">¼ vocab</text>
+      <rect x="203" y="44" width="55" height="122" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="230.5" y="64" font-weight="700">NPU 3</text><text x="230.5" y="88">L0–L11</text><text x="230.5" y="108">3 heads</text><text x="230.5" y="128">¼ MLP</text><text x="230.5" y="148">¼ vocab</text>
+    </g>
+    <rect x="20" y="178" width="238" height="26" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+    <text x="139" y="195" text-anchor="middle" font-size="11.5" fill="#0969da">all-reduce after attention + after MLP</text>
+    <text x="139" y="226" text-anchor="middle" font-size="11.5" fill="#57606a">every layer, ¼ of every weight</text>
+    <line x1="20" y1="244" x2="260" y2="244" stroke="#d0d7de"/>
+    <text x="139" y="266" text-anchor="middle" font-size="13" fill="#24292f">decode <tspan font-weight="700" fill="#1a7f37">13.9 ms</tspan>/token</text>
+  </g>
+
+  <!-- Pipeline parallel -->
+  <g transform="translate(310,10)">
+    <rect width="280" height="280" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="140" y="26" text-anchor="middle" font-size="14" font-weight="700" fill="#24292f">pipeline_parallel  (pp = 4)</text>
+    <g font-size="11" fill="#24292f" text-anchor="middle">
+      <rect x="20" y="44" width="50" height="122" rx="6" fill="#fff8e6" stroke="#d4a72c"/>
+      <text x="45" y="64" font-weight="700">NPU 0</text><text x="45" y="88">L0–2</text><text x="45" y="108">+ embed</text>
+      <rect x="83" y="44" width="50" height="122" rx="6" fill="#fff8e6" stroke="#d4a72c"/>
+      <text x="108" y="64" font-weight="700">NPU 1</text><text x="108" y="88">L3–5</text>
+      <rect x="146" y="44" width="50" height="122" rx="6" fill="#fff8e6" stroke="#d4a72c"/>
+      <text x="171" y="64" font-weight="700">NPU 2</text><text x="171" y="88">L6–8</text>
+      <rect x="209" y="44" width="50" height="122" rx="6" fill="#fff8e6" stroke="#d4a72c"/>
+      <text x="234" y="64" font-weight="700">NPU 3</text><text x="234" y="88">L9–11</text><text x="234" y="108">+ LM</text><text x="234" y="124">head</text>
+    </g>
+    <line x1="71" y1="125" x2="82" y2="125" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="134" y1="125" x2="145" y2="125" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="197" y1="125" x2="208" y2="125" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <rect x="20" y="178" width="239" height="26" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+    <text x="139.5" y="195" text-anchor="middle" font-size="11.5" fill="#0969da">send hidden state to the next stage</text>
+    <text x="139.5" y="226" text-anchor="middle" font-size="11.5" fill="#57606a">3 whole layers per NPU, run in turn</text>
+    <line x1="20" y1="244" x2="260" y2="244" stroke="#d0d7de"/>
+    <text x="139.5" y="266" text-anchor="middle" font-size="13" fill="#24292f">decode <tspan font-weight="700" fill="#cf222e">52.4 ms</tspan>/token</text>
+  </g>
+
+  <!-- Hybrid -->
+  <g transform="translate(610,10)">
+    <rect width="280" height="280" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="140" y="26" text-anchor="middle" font-size="14" font-weight="700" fill="#24292f">hybrid  (tp = 2 × pp = 2)</text>
+    <g font-size="11" fill="#24292f" text-anchor="middle">
+      <text x="20" y="62" text-anchor="start" font-size="10.5" fill="#57606a">stage 0 · L0–5</text>
+      <rect x="20" y="68" width="116" height="34" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="78" y="89"><tspan font-weight="700">NPU 0</tspan> · 6 heads</text>
+      <rect x="143" y="68" width="116" height="34" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="201" y="89"><tspan font-weight="700">NPU 1</tspan> · 6 heads</text>
+      <text x="20" y="128" text-anchor="start" font-size="10.5" fill="#57606a">stage 1 · L6–11</text>
+      <rect x="20" y="134" width="116" height="34" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="78" y="155"><tspan font-weight="700">NPU 2</tspan> · 6 heads</text>
+      <rect x="143" y="134" width="116" height="34" rx="6" fill="#ede7ff" stroke="#8250df"/>
+      <text x="201" y="155"><tspan font-weight="700">NPU 3</tspan> · 6 heads</text>
+    </g>
+    <line x1="124" y1="103" x2="124" y2="132" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="247" y1="103" x2="247" y2="132" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <rect x="20" y="178" width="239" height="26" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+    <text x="139.5" y="195" text-anchor="middle" font-size="11.5" fill="#0969da">all-reduce in a stage · send between</text>
+    <text x="139.5" y="226" text-anchor="middle" font-size="11.5" fill="#57606a">strategy_args: {tp: 2, pp: 2}</text>
+    <line x1="20" y1="244" x2="260" y2="244" stroke="#d0d7de"/>
+    <text x="139.5" y="266" text-anchor="middle" font-size="13" fill="#24292f">decode <tspan font-weight="700" fill="#9a6700">26.5 ms</tspan>/token</text>
+  </g>
+</svg>

@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="400" rx="14" fill="#ffffff"/>
+
+  <!-- CSV from the kernel team -->
+  <rect x="20" y="20" width="290" height="300" rx="10" fill="#fff8e6" stroke="#d4a72c" stroke-width="1.5"/>
+  <text x="165" y="44" text-anchor="middle" font-size="14" font-weight="700" fill="#24292f">kernel_table: reef_fp16.csv</text>
+  <text x="165" y="62" text-anchor="middle" font-size="11" fill="#57606a">timed by the kernel team on sim / FPGA / silicon</text>
+  <g font-family="ui-monospace, Menlo, monospace" font-size="10.5" fill="#24292f">
+    <rect x="30" y="74" width="270" height="20" fill="#f5e6b8"/>
+    <g font-weight="700"><text x="36" y="88">op</text><text x="128" y="88">batch</text><text x="170" y="88">M</text><text x="196" y="88">K</text><text x="226" y="88">N</text><text x="262" y="88">warm</text></g>
+    <text x="36" y="112">matmul</text><text x="128" y="112">1</text><text x="170" y="112">1</text><text x="196" y="112">768</text><text x="226" y="112">192</text><text x="262" y="112">µs</text>
+    <text x="36" y="132">matmul</text><text x="128" y="132">1</text><text x="170" y="132">4</text><text x="196" y="132">768</text><text x="226" y="132">192</text><text x="262" y="132">µs</text>
+    <text x="36" y="152">matmul</text><text x="128" y="152">1</text><text x="170" y="152">1</text><text x="196" y="152">768</text><text x="226" y="152">12565</text><text x="262" y="152">µs</text>
+    <text x="36" y="172">attn_scores</text><text x="128" y="172">3</text><text x="170" y="172">1</text><text x="196" y="172">64</text><text x="226" y="172">512</text><text x="262" y="172">µs</text>
+    <text x="36" y="192">attention</text><text x="128" y="192">3</text><text x="170" y="192">1</text><text x="196" y="192">64</text><text x="226" y="192">512</text><text x="262" y="192">µs</text>
+    <text x="36" y="212">layernorm</text><text x="128" y="212">1</text><text x="170" y="212">1</text><text x="196" y="212">1</text><text x="226" y="212">768</text><text x="262" y="212">µs</text>
+    <text x="36" y="232" fill="#57606a">…</text>
+  </g>
+  <line x1="30" y1="246" x2="300" y2="246" stroke="#e1c46a"/>
+  <text x="36" y="266" font-size="11" fill="#24292f"><tspan font-weight="700">warm</tspan> = operands already in SRAM (pure compute)</text>
+  <text x="36" y="284" font-size="11" fill="#24292f"><tspan font-weight="700">cold</tspan> = weights from DRAM (validation only)</text>
+  <text x="36" y="302" font-size="11" fill="#24292f"><tspan font-weight="700">_meta.yaml</tspan>: platform, clock, kernel sha</text>
+
+  <!-- query -->
+  <rect x="345" y="20" width="285" height="52" rx="8" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+  <text x="487.5" y="40" text-anchor="middle" font-size="12" font-weight="700" fill="#24292f">each counted kernel call (per NPU)</text>
+  <text x="487.5" y="60" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="11" fill="#24292f">matmul  batch=1 M=3 K=768 N=192 fp16</text>
+  <line x1="312" y1="170" x2="340" y2="170" stroke="#d4a72c" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="487.5" y1="73" x2="487.5" y2="90" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- rules -->
+  <g font-size="11" fill="#24292f">
+    <rect x="345" y="92" width="285" height="48" rx="7" fill="#dafbe1" stroke="#1a7f37"/>
+    <circle cx="362" cy="116" r="10" fill="#1a7f37"/><text x="362" y="120" text-anchor="middle" fill="#fff" font-weight="700">1</text>
+    <text x="380" y="111" font-size="12" font-weight="700">exact match</text>
+    <text x="380" y="128">same op, batch, M, K, N, dtype</text>
+
+    <rect x="345" y="156" width="285" height="48" rx="7" fill="#ddf4ff" stroke="#0969da"/>
+    <circle cx="362" cy="180" r="10" fill="#0969da"/><text x="362" y="184" text-anchor="middle" fill="#fff" font-weight="700">2</text>
+    <text x="380" y="175" font-size="12" font-weight="700">interpolate (log scale)</text>
+    <text x="380" y="192">on M; attention: on M and ctx together</text>
+
+    <rect x="345" y="220" width="285" height="48" rx="7" fill="#ede7ff" stroke="#8250df"/>
+    <circle cx="362" cy="244" r="10" fill="#8250df"/><text x="362" y="248" text-anchor="middle" fill="#fff" font-weight="700">3</text>
+    <text x="380" y="239" font-size="12" font-weight="700">near match, scale (matmuls)</text>
+    <text x="380" y="256">K or N within ±1%: time × N / N_measured</text>
+
+    <rect x="345" y="284" width="285" height="48" rx="7" fill="#ffebe9" stroke="#cf222e"/>
+    <circle cx="362" cy="308" r="10" fill="#cf222e"/><text x="362" y="312" text-anchor="middle" fill="#fff" font-weight="700">4</text>
+    <text x="380" y="303" font-size="12" font-weight="700">no usable rows</text>
+    <text x="380" y="320">constant model + warning</text>
+  </g>
+  <g font-size="10" fill="#57606a" text-anchor="start">
+    <line x1="487.5" y1="141" x2="487.5" y2="154" stroke="#57606a" stroke-width="1.2" marker-end="url(#a)"/><text x="494" y="151">miss</text>
+    <line x1="487.5" y1="205" x2="487.5" y2="218" stroke="#57606a" stroke-width="1.2" marker-end="url(#a)"/><text x="494" y="215">miss</text>
+    <line x1="487.5" y1="269" x2="487.5" y2="282" stroke="#57606a" stroke-width="1.2" marker-end="url(#a)"/><text x="494" y="279">miss</text>
+  </g>
+
+  <!-- outputs -->
+  <text x="770" y="44" text-anchor="middle" font-size="14" font-weight="700" fill="#24292f">price → (seconds, rule)</text>
+  <text x="770" y="62" text-anchor="middle" font-size="11" fill="#57606a">rule tallied in modeled.pricing</text>
+  <g font-size="12" text-anchor="middle">
+    <line x1="631" y1="116" x2="672" y2="116" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <rect x="675" y="98" width="190" height="36" rx="18" fill="#dafbe1" stroke="#1a7f37"/>
+    <text x="770" y="121" fill="#1a7f37"><tspan font-weight="700">exact</tspan> · measured</text>
+    <line x1="631" y1="180" x2="672" y2="180" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <rect x="675" y="162" width="190" height="36" rx="18" fill="#ddf4ff" stroke="#0969da"/>
+    <text x="770" y="185" fill="#0969da"><tspan font-weight="700">interpolated</tspan> · measured</text>
+    <line x1="631" y1="244" x2="672" y2="244" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <rect x="675" y="226" width="190" height="36" rx="18" fill="#ede7ff" stroke="#8250df"/>
+    <text x="770" y="249" fill="#8250df"><tspan font-weight="700">scaled</tspan> · measured, adjusted</text>
+    <line x1="631" y1="308" x2="672" y2="308" stroke="#57606a" stroke-width="1.5" marker-end="url(#a)"/>
+    <rect x="675" y="290" width="190" height="36" rx="18" fill="#ffebe9" stroke="#cf222e"/>
+    <text x="770" y="313" fill="#cf222e"><tspan font-weight="700">fallback</tspan> · not measured</text>
+  </g>
+
+  <!-- fused attention -->
+  <rect x="20" y="344" width="860" height="40" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="450" y="369" text-anchor="middle" font-size="12" fill="#24292f"><tspan font-weight="700">Fused attention:</tspan> if an <tspan font-family="ui-monospace, Menlo, monospace">attention</tspan> row matches (rule 1 or 2), one time covers scores + softmax + probs·V, split across the three records by FLOPs.</text>
+</svg>
